@@ -1,29 +1,36 @@
 -module(etcd).
 
 -export([start/0, stop/0]).
--export([set/4, set/5]).
--export([test_and_set/5, test_and_set/6]).
--export([get/3]).
--export([delete/3]).
--export([watch/3, watch/4]).
--export([sadd/4, sadd/5, sdel/4, sismember/4, smembers/3]).
+-export([set/2, set/3, set/4]).
+-compile(export_all).
 
 -include("include/etcd_types.hrl").
+
+-define(DEFAULT_TIMEOUT, 50000).
 
 %% @doc Start application with all depencies
 -spec start() -> ok | {error, term()}.
 start() ->
-    case application:ensure_all_started(etcd) of
-        {ok, _} ->
-            ok;
-        {error, Reason} ->
-            {error, Reason}
-    end.
+  case application:ensure_all_started(etcd) of
+    {ok, _} ->
+      ok;
+    {error, Reason} ->
+      {error, Reason}
+  end.
 
 %% @doc Stop application
 -spec stop() -> ok | {error, term()}.
 stop() ->
-    application:stop(etcd).
+  application:stop(etcd).
+
+-spec set(key(), value()) -> result().
+set(Key, Value) ->
+  set(Key, Value, ?DEFAULT_TIMEOUT).
+
+-spec set(key(), value(), pos_timeout()) -> result().
+set(Key, Value, Timeout) ->
+  Url = env:get(etcd, etcd_url, "http://192.168.59.103:4001"),
+  set_(Url, Key, Value, Timeout).
 
 %% @spec (Url, Key, Value, Timeout) -> Result
 %%   Url = string()
@@ -32,11 +39,16 @@ stop() ->
 %%   Timeout = pos_integer() | 'infinity'
 %%   Result = {ok, response() | [response()]} | {http_error, atom()}.
 %% @end
--spec set(url(), key(), value(), pos_timeout()) -> result().
-set(Url, Key, Value, Timeout) ->
-    FullUrl = url_prefix(Url) ++ "/keys" ++ convert_to_string(Key),
-    Result = post_request(FullUrl, [{"value", Value}], Timeout),
-    handle_request_result(Result).
+-spec set_(url(), key(), value(), pos_timeout()) -> result().
+set_(Url, Key, Value, Timeout) ->
+  FullUrl = url_prefix(Url) ++ "/keys/" ++ convert_to_string(Key),
+  Result = put_request(FullUrl, [{"value", Value}], Timeout),
+  handle_request_result(Result).
+
+-spec set(key(), value(), pos_timeout(), pos_timeout()) -> result().
+set(Key, Value, TTL, Timeout) ->
+  Url = env:get(etcd, etcd_url, "http://192.168.59.103:4001"),
+  set_(Url, Key, Value, TTL, Timeout).
 
 %% @spec (Url, Key, Value, TTL, Timeout) -> Result
 %%   Url = string()
@@ -46,11 +58,12 @@ set(Url, Key, Value, Timeout) ->
 %%   Timeout = pos_integer() | infinity
 %%   Result = {ok, response() | [response()]} | {http_error, atom()}.
 %% @end
--spec set(url(), key(), value(), pos_integer(), pos_timeout()) -> result().
-set(Url, Key, Value, TTL, Timeout) ->
-    FullUrl = url_prefix(Url) ++ "/keys" ++ convert_to_string(Key),
-    Result = post_request(FullUrl, [{"value", Value}, {"ttl", TTL}], Timeout),
-    handle_request_result(Result).
+-spec set_(url(), key(), value(), pos_integer(), pos_timeout()) -> result().
+set_(Url, Key, Value, TTL, Timeout) ->
+  FullUrl = url_prefix(Url) ++ "/keys/" ++ convert_to_string(Key),
+  Result = put_request(FullUrl, [{"value", Value}, {"ttl", TTL}], Timeout),
+  handle_request_result(Result).
+
 
 %% @spec (Url, Key, PrevValue, Value, Timeout) -> Result
 %%   Url = string()
@@ -60,11 +73,12 @@ set(Url, Key, Value, TTL, Timeout) ->
 %%   Timeout = pos_integer() | 'infinity'
 %%   Result = {ok, response() | [response()]} | {http_error, atom()}.
 %% @end
--spec test_and_set(url(), key(), value(), value(), pos_timeout()) -> result().
-test_and_set(Url, Key, PrevValue, Value, Timeout) ->
-    FullUrl = url_prefix(Url) ++ "/keys" ++ convert_to_string(Key),
-    Result = post_request(FullUrl, [{"value", Value}, {"prevValue", PrevValue}], Timeout),
-    handle_request_result(Result).
+-spec test_and_set(key(), value(), value(), pos_timeout()) -> result().
+test_and_set(Key, PrevValue, Value, Timeout) ->
+  Url = env:get(etcd, etcd_url, "http://192.168.59.103:4001"),
+  FullUrl = url_prefix(Url) ++ "/keys/" ++ convert_to_string(Key),
+  Result = put_request(FullUrl, [{"value", Value}, {"prevValue", PrevValue}], Timeout),
+  handle_request_result(Result).
 
 %% @spec (Url, Key, PrevValue, Value, TTL, Timeout) -> Result
 %%   Url = string()
@@ -75,11 +89,12 @@ test_and_set(Url, Key, PrevValue, Value, Timeout) ->
 %%   Timeout = pos_integer() | infinity
 %%   Result = {ok, response() | [response()]} | {http_error, atom()}.
 %% @end
--spec test_and_set(url(), key(), value(), value(), pos_integer(), pos_timeout()) -> result().
-test_and_set(Url, Key, PrevValue, Value, TTL, Timeout) ->
-    FullUrl = url_prefix(Url) ++ "/keys" ++ convert_to_string(Key),
-    Result = post_request(FullUrl, [{"value", Value}, {"prevValue", PrevValue}, {"ttl", TTL}], Timeout),
-    handle_request_result(Result).
+-spec test_and_set(key(), value(), value(), pos_integer(), pos_timeout()) -> result().
+test_and_set(Key, PrevValue, Value, TTL, Timeout) ->
+  Url = env:get(etcd, etcd_url, "http://192.168.59.103:4001"),
+  FullUrl = url_prefix(Url) ++ "/keys/" ++ convert_to_string(Key),
+  Result = put_request(FullUrl, [{"value", Value}, {"prevValue", PrevValue}, {"ttl", TTL}], Timeout),
+  handle_request_result(Result).
 
 %% @spec (Url, Key, Timeout) -> Result
 %%   Url = string()
@@ -87,11 +102,12 @@ test_and_set(Url, Key, PrevValue, Value, TTL, Timeout) ->
 %%   Timeout = pos_integer() | infinity
 %%   Result = {ok, response() | [response()]} | {http_error, atom()}.
 %% @end
--spec get(url(), key(), pos_timeout()) -> result().
-get(Url, Key, Timeout) ->
-    FullUrl = url_prefix(Url) ++ "/keys" ++ convert_to_string(Key),
-    Result = lhttpc:request(FullUrl, get, [], Timeout),
-    handle_request_result(Result).
+-spec get(key(), pos_timeout()) -> result().
+get(Key, Timeout) ->
+  Url = env:get(etcd, etcd_url, "http://192.168.59.103:4001"),
+  FullUrl = url_prefix(Url) ++ "/keys/" ++ convert_to_string(Key),
+  Result = lhttpc:request(FullUrl, get, [], Timeout),
+  handle_request_result(Result).
 
 %% @spec (Url, Key, Timeout) -> Result
 %%   Url = string()
@@ -99,11 +115,17 @@ get(Url, Key, Timeout) ->
 %%   Timeout = pos_integer() | infinity
 %%   Result = {ok, response() | [response()]} | {http_error, atom()}.
 %% @end
--spec delete(url(), key(), pos_timeout()) -> result().
-delete(Url, Key, Timeout) ->
-    FullUrl = url_prefix(Url) ++ "/keys" ++ convert_to_string(Key),
-    Result = lhttpc:request(FullUrl, delete, [], Timeout),
-    handle_request_result(Result).
+-spec delete(key(), pos_timeout()) -> result().
+delete(Key, Timeout) ->
+  Url = env:get(etcd, etcd_url, "http://192.168.59.103:4001"),
+  FullUrl = url_prefix(Url) ++ "/keys/" ++ convert_to_string(Key),
+  Result = lhttpc:request(FullUrl, delete, [], Timeout),
+  handle_request_result(Result).
+
+-spec watch(key(), Recursive::boolean(), pos_timeout()) -> result().
+watch(Key, Recursive, Timeout) ->
+  Url = env:get(etcd, etcd_url, "http://192.168.59.103:4001"),
+  watch_(Url, Key, Recursive, Timeout).
 
 %% @spec (Url, Key, Timeout) -> Result
 %%   Url = string()
@@ -111,11 +133,17 @@ delete(Url, Key, Timeout) ->
 %%   Timeout = pos_integer() | infinity
 %%   Result = {ok, response() | [response()]} | {http_error, atom()}.
 %% @end
--spec watch(url(), key(), pos_timeout()) -> result().
-watch(Url, Key, Timeout) ->
-    FullUrl = url_prefix(Url) ++ "/watch" ++ convert_to_string(Key),
-    Result = lhttpc:request(FullUrl, get, [], Timeout),
-    handle_request_result(Result).
+-spec watch_(url(), key(), Recursive::boolean(), pos_timeout()) -> result().
+watch_(Url, Key, Recursive, Timeout) ->
+  BaseQuery = [{wait, true}],
+  Query = case Recursive of
+    true -> BaseQuery++[{recursive, true}];
+    false-> BaseQuery
+  end,
+  FullUrl = url_prefix(Url) ++ "/keys/" ++ convert_to_string(Key) ++ "?" ++ mochiweb_util:urlencode(Query),
+  io:format("----------> watch_ url:~p~n", [FullUrl]),
+  Result = lhttpc:request(FullUrl, get, [], Timeout),
+  handle_request_result(Result).
 
 %% @spec (Url, Key, Index, Timeout) -> Result
 %%   Url = string()
@@ -124,11 +152,16 @@ watch(Url, Key, Timeout) ->
 %%   Timeout = pos_integer() | infinity
 %%   Result = {ok, response() | [response()]} | {http_error, atom()}.
 %% @end
--spec watch(url(), key(), pos_integer(), pos_timeout()) -> result().
-watch(Url, Key, Index, Timeout) ->
-    FullUrl = url_prefix(Url) ++ "/watch" ++ convert_to_string(Key),
-    Result = post_request(FullUrl, [{"index", Index}], Timeout),
-    handle_request_result(Result).
+-spec watch_(url(), key(), pos_integer(), Recursive::boolean(), pos_timeout()) -> result().
+watch_(Url, Key, Index, Recursive, Timeout) ->
+  BaseQuery = [{wait, true}, {waitIndex, Index}],
+  Query = case Recursive of
+    true -> BaseQuery++[{recursive, true}];
+    false-> BaseQuery
+  end,
+  FullUrl = url_prefix(Url) ++ "/keys/" ++ convert_to_string(Key) ++ "?" ++ mochiweb_util:urlencode(Query),
+  Result = put_request(FullUrl, [{"index", Index}], Timeout),
+  handle_request_result(Result).
 
 -spec sadd(url(), key(), value(), pos_timeout()) -> ok | {error, any()}.
 sadd(Url, Key, Value, Timeout) -> etcd_sets:add(Url, Key, Value, Timeout).
@@ -147,131 +180,40 @@ smembers(Url, Key, Timeout) -> etcd_sets:members(Url, Key, Timeout).
 
 %% @private
 convert_to_string(Value) when is_integer(Value) ->
-    integer_to_list(Value);
+  integer_to_list(Value);
 convert_to_string(Value) when is_binary(Value) ->
-    binary_to_list(Value);
+  binary_to_list(Value);
 convert_to_string(Value) when is_list(Value) ->
-    Value.
+  Value.
 
 %% @private
 encode_params(Pairs) ->
-    List = [ http_uri:encode(convert_to_string(Key)) ++ "=" ++ http_uri:encode(convert_to_string(Value)) || {Key, Value} <- Pairs ],
-    binary:list_to_bin(string:join(List, "&")).
+  List = [ http_uri:encode(convert_to_string(Key)) ++ "=" ++ http_uri:encode(convert_to_string(Value)) || {Key, Value} <- Pairs ],
+  binary:list_to_bin(string:join(List, "&")).
 
 %% @private
 url_prefix(Url) ->
-    Url ++ "/v1".
+  Url ++ "/v2".
 
 %% @private
-post_request(Url, Pairs, Timeout) ->
-    Body = encode_params(Pairs),
-    Headers = [{"Content-Type", "application/x-www-form-urlencoded"}],
-    lhttpc:request(Url, post, Headers, Body, Timeout).
-
-%% @private
-parse_response(Decoded) when is_list(Decoded) ->
-    [ parse_response_inner(Pairs) || {Pairs} <- Decoded ];
-parse_response(Decoded) when is_tuple(Decoded) ->
-    {Pairs} = Decoded,
-    IsError = lists:keyfind(<<"errorCode">>, 1, Pairs),
-    case IsError of
-        {_, ErrorCode} ->
-            parse_error_response(Pairs, #error{ errorCode = ErrorCode });
-        false ->
-            parse_response_inner(Pairs)
-    end.
-
-%% @private
-parse_response_inner(Pairs) ->
-    {_, Action} = lists:keyfind(<<"action">>, 1, Pairs),
-    case Action of
-        <<"SET">> ->
-            parse_set_response(Pairs, #set{});
-        <<"GET">> ->
-            parse_get_response(Pairs, #get{});
-        <<"DELETE">> ->
-            parse_delete_response(Pairs, #delete{})
-    end.
-
-%% @private
-parse_error_response([], Acc) ->
-    Acc;
-parse_error_response([Pair | Tail], Acc) ->
-    {_, ErrorCode, Message, Cause} = Acc,
-    case Pair of
-        {<<"message">>, Message1} ->
-            parse_error_response(Tail, {error, ErrorCode, Message1, Cause});
-        {<<"cause">>, Cause1} ->
-            parse_error_response(Tail, {error, ErrorCode, Message, Cause1});
-        _ ->
-            parse_error_response(Tail, Acc)
-    end.
-
-%% @private
-parse_set_response([], Acc) ->
-    Acc;
-parse_set_response([Pair | Tail], Acc) ->
-    {_, Key, Value, PrevValue, NewKey, Expiration, TTL, Index} = Acc,
-    case Pair of
-        {<<"key">>, Key1} ->
-            parse_set_response(Tail, {set, Key1, Value, PrevValue, NewKey, Expiration, TTL, Index});
-        {<<"value">>, Value1} ->
-            parse_set_response(Tail, {set, Key, Value1, PrevValue, NewKey, Expiration, TTL, Index});
-        {<<"prevValue">>, PrevValue1} ->
-            parse_set_response(Tail, {set, Key, Value, PrevValue1, NewKey, Expiration, TTL, Index});
-        {<<"newKey">>, NewKey1} ->
-            parse_set_response(Tail, {set, Key, Value, PrevValue, NewKey1, Expiration, TTL, Index});
-        {<<"expiration">>, Expiration1} ->
-            parse_set_response(Tail, {set, Key, Value, PrevValue, NewKey, Expiration1, TTL, Index});
-        {<<"ttl">>, TTL1} ->
-            parse_set_response(Tail, {set, Key, Value, PrevValue, NewKey, Expiration, TTL1, Index});
-        {<<"index">>, Index1} ->
-            parse_set_response(Tail, {set, Key, Value, PrevValue, NewKey, Expiration, TTL, Index1});
-        _ ->
-            parse_set_response(Tail, Acc)
-    end.
-
-%% @private
-parse_get_response([], Acc) ->
-    Acc;
-parse_get_response([Pair | Tail], Acc) ->
-    {_, Key, Value, Dir, Index} = Acc,
-    case Pair of
-        {<<"key">>, Key1} ->
-            parse_get_response(Tail, {get, Key1, Value, Dir, Index});
-        {<<"value">>, Value1} ->
-            parse_get_response(Tail, {get, Key, Value1, Dir, Index});
-        {<<"dir">>, Dir1} ->
-            parse_get_response(Tail, {get, Key, Value, Dir1, Index});
-        {<<"index">>, Index1} ->
-            parse_get_response(Tail, {get, Key, Value, Dir, Index1});
-        _ ->
-            parse_get_response(Tail, Acc)
-    end.
-
-%% @private
-parse_delete_response([], Acc) ->
-    Acc;
-parse_delete_response([Pair | Tail], Acc) ->
-    {_, Key, PrevValue, Index} = Acc,
-    case Pair of
-        {<<"key">>, Key1} ->
-            parse_delete_response(Tail, {delete, Key1, PrevValue, Index});
-        {<<"prevValue">>, PrevValue1} ->
-            parse_delete_response(Tail, {delete, Key, PrevValue1, Index});
-        {<<"index">>, Index1} ->
-            parse_delete_response(Tail, {delete, Key, PrevValue, Index1});
-        _ ->
-            parse_delete_response(Tail, Acc)
-    end.
+put_request(Url, Pairs, Timeout) ->
+  Body = encode_params(Pairs),
+  Headers = [{"Content-Type", "application/x-www-form-urlencoded"}],
+  lhttpc:request(Url, put, Headers, Body, Timeout).
 
 %% @private
 handle_request_result(Result) ->
-    case Result of
-        {ok, {{_StatusCode, _ReasonPhrase}, _Hdrs, ResponseBody}} ->
-            Decoded = jiffy:decode(ResponseBody),
-            {ok, parse_response(Decoded)};
-        {error, Reason} ->
-            {http_error, Reason}
-    end.
+  case Result of
+    {ok, {{StatusCode, _ReasonPhrase}, _Hdrs, ResponseBody}} ->
+      io:format("--------> code:~p~n", [StatusCode]),
+      case StatusCode div 100 of
+        2 ->
+         Decoded = jiffy:decode(ResponseBody),
+         {ok, Decoded};
+        _ ->
+         {error, jiffy:decode(ResponseBody)}
+      end;
+    {error, Reason} ->
+      {http_error, Reason}
+  end.
 
