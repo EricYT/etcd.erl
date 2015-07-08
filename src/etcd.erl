@@ -41,8 +41,8 @@ set(Key, Value, Timeout) ->
 %% @end
 -spec set_(url(), key(), value(), pos_timeout()) -> result().
 set_(Url, Key, Value, Timeout) ->
-  FullUrl = url_prefix(Url) ++ "/keys/" ++ convert_to_string(Key),
-  Result = put_request(FullUrl, [{"value", Value}], Timeout),
+  FullUrl = url_prefix(Url) ++ "/keys" ++ convert_to_string(Key),
+  Result = put_request(FullUrl, #{value => Value}, Timeout),
   handle_request_result(Result).
 
 -spec set(key(), value(), pos_timeout(), pos_timeout()) -> result().
@@ -60,8 +60,8 @@ set(Key, Value, TTL, Timeout) ->
 %% @end
 -spec set_(url(), key(), value(), pos_integer(), pos_timeout()) -> result().
 set_(Url, Key, Value, TTL, Timeout) ->
-  FullUrl = url_prefix(Url) ++ "/keys/" ++ convert_to_string(Key),
-  Result = put_request(FullUrl, [{"value", Value}, {"ttl", TTL}], Timeout),
+  FullUrl = url_prefix(Url) ++ "/keys" ++ convert_to_string(Key),
+  Result = put_request(FullUrl, #{value => Value, ttl => TTL}, Timeout),
   handle_request_result(Result).
 
 
@@ -76,8 +76,8 @@ set_(Url, Key, Value, TTL, Timeout) ->
 -spec test_and_set(key(), value(), value(), pos_timeout()) -> result().
 test_and_set(Key, PrevValue, Value, Timeout) ->
   Url = env:get(etcd, etcd_url, "http://192.168.59.103:4001"),
-  FullUrl = url_prefix(Url) ++ "/keys/" ++ convert_to_string(Key),
-  Result = put_request(FullUrl, [{"value", Value}, {"prevValue", PrevValue}], Timeout),
+  FullUrl = url_prefix(Url) ++ "/keys" ++ convert_to_string(Key),
+  Result = put_request(FullUrl, #{value => Value, prevValue => PrevValue}, Timeout),
   handle_request_result(Result).
 
 %% @spec (Url, Key, PrevValue, Value, TTL, Timeout) -> Result
@@ -92,8 +92,8 @@ test_and_set(Key, PrevValue, Value, Timeout) ->
 -spec test_and_set(key(), value(), value(), pos_integer(), pos_timeout()) -> result().
 test_and_set(Key, PrevValue, Value, TTL, Timeout) ->
   Url = env:get(etcd, etcd_url, "http://192.168.59.103:4001"),
-  FullUrl = url_prefix(Url) ++ "/keys/" ++ convert_to_string(Key),
-  Result = put_request(FullUrl, [{"value", Value}, {"prevValue", PrevValue}, {"ttl", TTL}], Timeout),
+  FullUrl = url_prefix(Url) ++ "/keys" ++ convert_to_string(Key),
+  Result = put_request(FullUrl, #{value => Value, prevValue => PrevValue, ttl => TTL}, Timeout),
   handle_request_result(Result).
 
 %% @spec (Url, Key, Timeout) -> Result
@@ -105,7 +105,8 @@ test_and_set(Key, PrevValue, Value, TTL, Timeout) ->
 -spec get(key(), pos_timeout()) -> result().
 get(Key, Timeout) ->
   Url = env:get(etcd, etcd_url, "http://192.168.59.103:4001"),
-  FullUrl = url_prefix(Url) ++ "/keys/" ++ convert_to_string(Key),
+  FullUrl = url_prefix(Url) ++ "/keys" ++ convert_to_string(Key),
+  io:format("---------------> get url:~p~n", [FullUrl]),
   Result = lhttpc:request(FullUrl, get, [], Timeout),
   handle_request_result(Result).
 
@@ -118,7 +119,7 @@ get(Key, Timeout) ->
 -spec delete(key(), pos_timeout()) -> result().
 delete(Key, Timeout) ->
   Url = env:get(etcd, etcd_url, "http://192.168.59.103:4001"),
-  FullUrl = url_prefix(Url) ++ "/keys/" ++ convert_to_string(Key),
+  FullUrl = url_prefix(Url) ++ "/keys" ++ convert_to_string(Key),
   Result = lhttpc:request(FullUrl, delete, [], Timeout),
   handle_request_result(Result).
 
@@ -140,7 +141,7 @@ watch_(Url, Key, Recursive, Timeout) ->
     true -> BaseQuery++[{recursive, true}];
     false-> BaseQuery
   end,
-  FullUrl = url_prefix(Url) ++ "/keys/" ++ convert_to_string(Key) ++ "?" ++ mochiweb_util:urlencode(Query),
+  FullUrl = url_prefix(Url) ++ "/keys" ++ convert_to_string(Key) ++ "?" ++ encode_params(Query),
   io:format("----------> watch_ url:~p~n", [FullUrl]),
   Result = lhttpc:request(FullUrl, get, [], Timeout),
   handle_request_result(Result).
@@ -159,7 +160,8 @@ watch_(Url, Key, Index, Recursive, Timeout) ->
     true -> BaseQuery++[{recursive, true}];
     false-> BaseQuery
   end,
-  FullUrl = url_prefix(Url) ++ "/keys/" ++ convert_to_string(Key) ++ "?" ++ mochiweb_util:urlencode(Query),
+  FullUrl = url_prefix(Url) ++ "/keys" ++ convert_to_string(Key) ++ "?" ++ encode_params(Query),
+  io:format("----------> watch_ url:~p~n", [FullUrl]),
   Result = put_request(FullUrl, [{"index", Index}], Timeout),
   handle_request_result(Result).
 
@@ -183,13 +185,16 @@ convert_to_string(Value) when is_integer(Value) ->
   integer_to_list(Value);
 convert_to_string(Value) when is_binary(Value) ->
   binary_to_list(Value);
+convert_to_string(Value) when is_atom(Value) ->
+  atom_to_list(Value);
 convert_to_string(Value) when is_list(Value) ->
   Value.
 
 %% @private
 encode_params(Pairs) ->
   List = [ http_uri:encode(convert_to_string(Key)) ++ "=" ++ http_uri:encode(convert_to_string(Value)) || {Key, Value} <- Pairs ],
-  binary:list_to_bin(string:join(List, "&")).
+  %%binary:list_to_bin(string:join(List, "&")).
+  string:join(List, "&").
 
 %% @private
 url_prefix(Url) ->
@@ -197,7 +202,7 @@ url_prefix(Url) ->
 
 %% @private
 put_request(Url, Pairs, Timeout) ->
-  Body = encode_params(Pairs),
+  Body = jiffy:encode(Pairs),
   Headers = [{"Content-Type", "application/x-www-form-urlencoded"}],
   lhttpc:request(Url, put, Headers, Body, Timeout).
 
@@ -205,15 +210,19 @@ put_request(Url, Pairs, Timeout) ->
 handle_request_result(Result) ->
   case Result of
     {ok, {{StatusCode, _ReasonPhrase}, _Hdrs, ResponseBody}} ->
-      io:format("--------> code:~p~n", [StatusCode]),
+      io:format("--------> code:~p~n", [Result]),
       case StatusCode div 100 of
         2 ->
          Decoded = jiffy:decode(ResponseBody),
          {ok, Decoded};
         _ ->
-         {error, jiffy:decode(ResponseBody)}
+          Error = try
+            jiffy:decode(ResponseBody)
+          catch _:_ ->
+            ResponseBody
+          end,
+          {error, Error}
       end;
     {error, Reason} ->
       {http_error, Reason}
   end.
-
